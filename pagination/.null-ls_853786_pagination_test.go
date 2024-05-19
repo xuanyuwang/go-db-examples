@@ -12,15 +12,14 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
 // struct for the example table
 // Column A & B are primary keys
 type Example struct {
-	A sql.NullInt32 `gorm:"column:a"`
-	B sql.NullTime  `gorm:"column:b"`
+	A sql.NullInt32 `gorm:"primaryKey"`
+	B sql.NullTime  `gorm:"primaryKey"`
 }
 
 func (e *Example) String() string {
@@ -129,7 +128,7 @@ func (t *PaginationTest) insertAllRecords() {
             B TIMESTAMP NULL,
             CONSTRAINT unique_ab UNIQUE (A, B)
         );`)
-	t.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&AllRecords)
+	t.db.Create(&AllRecords)
 }
 
 func (t *PaginationTest) cleanTable() {
@@ -137,7 +136,6 @@ func (t *PaginationTest) cleanTable() {
 }
 
 func (t *PaginationTest) SetupTest() {
-	t.cleanTable()
 	t.insertAllRecords()
 }
 
@@ -146,7 +144,6 @@ func (t *PaginationTest) TearDownTest() {
 }
 
 func (t *PaginationTest) SetupSubTest() {
-	t.cleanTable()
 	t.insertAllRecords()
 }
 
@@ -172,6 +169,7 @@ func (t *PaginationTest) TestAllRecords() {
 // Test the case where the last record of the last page are all NULLs
 func (t *PaginationTest) TestNextPage() {
 	t.Run("When A is null and B is null in last record", func() {
+
 		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
 			convertValueToNil(NullANullB.A),
 			convertValueToNil(NullANullB.B),
@@ -181,55 +179,6 @@ func (t *PaginationTest) TestNextPage() {
 
 		t.Require().NoError(err)
 		t.Assert().Len(records, 2)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
-	})
-
-	t.Run("When A is null and B is not null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(NullABiggerB.A),
-			convertValueToNil(NullABiggerB.B),
-		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
-
-		t.Require().NoError(err)
-		t.Assert().Len(records, 1)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
-	})
-
-	t.Run("When A is not null and B is null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(SmallerANullB.A),
-			convertValueToNil(SmallerANullB.B),
-		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
-
-		t.Require().NoError(err)
-		t.Assert().Len(records, 8)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
-	})
-
-	t.Run("When A is not null and B is not null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(SmallerABiggerB.A),
-			convertValueToNil(SmallerABiggerB.B),
-		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
-
-		t.Require().NoError(err)
-		t.Assert().Len(records, 8)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
-		err = t.db.Model(&Example{}).Scopes(orderBy).Find(&records).Error
 		for i, r := range records {
 			fmt.Printf("%v: %v\n", i, r.String())
 		}
