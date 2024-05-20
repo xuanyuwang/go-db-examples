@@ -32,19 +32,13 @@ func NextPage(
 	columns []OrderByColumn, // the definition of ORDER BY columns
 	values []interface{}, // the values of the last row of the last page
 ) Condition {
-	allRecords, excludeRecord := generatePaginationForColumn(columns, values)
-	condition := Condition{
-		SQL: fmt.Sprintf("%s AND (NOT %s)", allRecords.SQL, excludeRecord.SQL),
-	}
-	condition.mergeValues(allRecords.Values)
-	condition.mergeValues(excludeRecord.Values)
-	return condition
+	return generatePaginationForColumn(columns, values)
 }
 
 func generatePaginationForColumn(
 	columns []OrderByColumn, // the definition of ORDER BY columns
 	values []interface{}, // the values of the last row of the last page
-) (Condition, Condition) {
+) Condition {
 	column := columns[0]
 	// The value of column.SortExpression in the last row of the last page
 	prevValue := values[0]
@@ -56,61 +50,45 @@ func generatePaginationForColumn(
 
 	if len(columns) == 1 {
 		condition := Condition{SQL: "", Values: make([]interface{}, 0, len(columns))}
-		excludeValue := Condition{SQL: "", Values: make([]interface{}, 0, len(columns))}
 
 		switch {
 		case prevValue == nil && column.NullOption == Last:
-			condition.SQL = fmt.Sprintf("(%s IS NULL)", column.SortExpresssion)
-			excludeValue.SQL = fmt.Sprintf("(%s IS NULL)", column.SortExpresssion)
+			// No value after NULL
+			condition.SQL = fmt.Sprintf("(%s IS NOT NULL)", column.SortExpresssion)
 		case prevValue == nil && column.NullOption == First:
-			condition.SQL = fmt.Sprintf("((%s IS NULL) OR (%s IS NOT NULL))", column.SortExpresssion, column.SortExpresssion)
-			excludeValue.SQL = fmt.Sprintf("(%s IS NULL)", column.SortExpresssion)
+			condition.SQL = fmt.Sprintf("(%s IS NOT NULL)", column.SortExpresssion)
 		case prevValue != nil && column.NullOption == Last:
 			// the next row could be NULL
 			condition.SQL = fmt.Sprintf("((%s %s ?) OR (%s IS NULL))", column.SortExpresssion, sign, column.SortExpresssion)
 			condition.Values = []interface{}{prevValue}
-			excludeValue.SQL = fmt.Sprintf("(%s = ? AND %s IS NOT NULL)", column.SortExpresssion, column.SortExpresssion)
-			excludeValue.Values = []interface{}{prevValue}
 		case prevValue != nil && column.NullOption == First:
 			condition.SQL = fmt.Sprintf("(%s %s ?)", column.SortExpresssion, sign)
 			condition.Values = []interface{}{prevValue}
-			excludeValue.SQL = fmt.Sprintf("(%s = ? AND %s IS NOT NULL)", column.SortExpresssion, column.SortExpresssion)
-			excludeValue.Values = []interface{}{prevValue}
 		}
-		fmt.Printf("generated condition for column %v: %v\n", columns[0], condition)
-		return condition, excludeValue
+		return condition
 	} else {
-		condition, excludeValue := generatePaginationForColumn(columns[1:], values[1:])
-		var newCondition, newExcludeValue Condition
+		condition := generatePaginationForColumn(columns[1:], values[1:])
+		var newCondition Condition
 		switch {
 		case prevValue == nil && column.NullOption == Last:
 			newCondition.SQL = fmt.Sprintf("((%s IS NULL) AND %s)", column.SortExpresssion, condition.SQL)
-			newExcludeValue.SQL = fmt.Sprintf("((%s IS NULL) AND %s)", column.SortExpresssion, excludeValue.SQL)
 			newCondition.mergeValues(condition.Values)
-			newExcludeValue.mergeValues(excludeValue.Values)
 		case prevValue == nil && column.NullOption == First:
 			newCondition.SQL = fmt.Sprintf("((%s IS NOT NULL) OR ((%s IS NULL) AND %s))", column.SortExpresssion, column.SortExpresssion, condition.SQL)
-			newExcludeValue.SQL = fmt.Sprintf("((%s IS NULL) AND %s)", column.SortExpresssion, excludeValue.SQL)
 			newCondition.mergeValues(condition.Values)
-			newExcludeValue.mergeValues(excludeValue.Values)
 		case prevValue != nil && column.NullOption == Last:
 			// the next row could be NULL
-			newCondition.SQL = fmt.Sprintf("((%s %s= ? OR %s IS NULL) AND (%s))", column.SortExpresssion, sign, column.SortExpresssion, condition.SQL)
-			newCondition.mergeValues([]interface{}{prevValue})
+			newCondition.SQL = fmt.Sprintf(
+				"(((%s %s ?) OR (%s IS NULL)) OR ((%s = ?) AND %s))",
+				column.SortExpresssion, sign, column.SortExpresssion, column.SortExpresssion, condition.SQL,
+			)
+			newCondition.mergeValues([]interface{}{prevValue, prevValue})
 			newCondition.mergeValues(condition.Values)
-
-			newExcludeValue.SQL = fmt.Sprintf("((%s = ? AND %s IS NOT NULL) AND %s)", column.SortExpresssion, column.SortExpresssion, excludeValue.SQL)
-			newExcludeValue.mergeValues([]interface{}{prevValue})
-			newExcludeValue.mergeValues(excludeValue.Values)
 		case prevValue != nil && column.NullOption == First:
-			newCondition.SQL = fmt.Sprintf("(%s %s= ? AND (%s))", column.SortExpresssion, sign, condition.SQL)
-			newCondition.mergeValues([]interface{}{prevValue})
+			newCondition.SQL = fmt.Sprintf("(%s %s ?) OR ((%s = ?) AND %s)", column.SortExpresssion, sign, column.SortExpresssion, condition.SQL)
+			newCondition.mergeValues([]interface{}{prevValue, prevValue})
 			newCondition.mergeValues(condition.Values)
-			newExcludeValue.SQL = fmt.Sprintf("((%s = ? AND %s IS NOT NULL) AND %s)", column.SortExpresssion, column.SortExpresssion, excludeValue.SQL)
-			newExcludeValue.mergeValues([]interface{}{prevValue})
-			newExcludeValue.mergeValues(excludeValue.Values)
 		}
-		fmt.Printf("generated condition for column %v: %v\n", columns[0], newCondition)
-		return newCondition, newExcludeValue
+		return newCondition
 	}
 }

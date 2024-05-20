@@ -79,10 +79,11 @@ var (
 	NullASmallerB = Example{B: SmallerNullTime}
 	NullANullB    = Example{}
 
+	// in sorted order of "A ASC NULLS LAST, B DESC, NULLS FIRST"
 	AllRecords = []*Example{
-		&SmallerABiggerB, &SmallerASmallerB, &SmallerANullB,
-		&BiggerABiggerB, &BiggerASmallerB, &BiggerANullB,
-		&NullABiggerB, &NullASmallerB, &NullANullB,
+		&SmallerANullB, &SmallerABiggerB, &SmallerASmallerB,
+		&BiggerANullB, &BiggerABiggerB, &BiggerASmallerB,
+		&NullANullB, &NullABiggerB, &NullASmallerB,
 	}
 
 	columnA = OrderByColumn{SortExpresssion: "A", Direction: Asc, NullOption: Last}
@@ -181,9 +182,7 @@ func (t *PaginationTest) TestNextPage() {
 
 		t.Require().NoError(err)
 		t.Assert().Len(records, 2)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
+		t.Assert().ElementsMatch(records, AllRecords[7:])
 	})
 
 	t.Run("When A is null and B is not null in last record", func() {
@@ -196,9 +195,7 @@ func (t *PaginationTest) TestNextPage() {
 
 		t.Require().NoError(err)
 		t.Assert().Len(records, 1)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
+		t.Assert().ElementsMatch(records, AllRecords[8:])
 	})
 
 	t.Run("When A is not null and B is null in last record", func() {
@@ -211,9 +208,7 @@ func (t *PaginationTest) TestNextPage() {
 
 		t.Require().NoError(err)
 		t.Assert().Len(records, 8)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
+		t.Assert().ElementsMatch(records, AllRecords[1:])
 	})
 
 	t.Run("When A is not null and B is not null in last record", func() {
@@ -225,13 +220,7 @@ func (t *PaginationTest) TestNextPage() {
 		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
 
 		t.Require().NoError(err)
-		t.Assert().Len(records, 8)
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
-		err = t.db.Model(&Example{}).Scopes(orderBy).Find(&records).Error
-		for i, r := range records {
-			fmt.Printf("%v: %v\n", i, r.String())
-		}
+		t.Assert().Len(records, 7)
+		t.Assert().ElementsMatch(records, AllRecords[2:])
 	})
 }
