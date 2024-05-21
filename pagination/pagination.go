@@ -32,13 +32,6 @@ func NextPage(
 	columns []OrderByColumn, // the definition of ORDER BY columns
 	values []interface{}, // the values of the last row of the last page
 ) Condition {
-	return generatePaginationForColumn(columns, values)
-}
-
-func generatePaginationForColumn(
-	columns []OrderByColumn, // the definition of ORDER BY columns
-	values []interface{}, // the values of the last row of the last page
-) Condition {
 	column := columns[0]
 	// The value of column.SortExpression in the last row of the last page
 	prevValue := values[0]
@@ -54,7 +47,7 @@ func generatePaginationForColumn(
 		switch {
 		case prevValue == nil && column.NullOption == Last:
 			// No value after NULL
-			condition.SQL = fmt.Sprintf("(%s IS NOT NULL)", column.SortExpresssion)
+			condition.SQL = fmt.Sprintf("(%s IS NOT NULL AND %s IS NULL)", column.SortExpresssion, column.SortExpresssion)
 		case prevValue == nil && column.NullOption == First:
 			condition.SQL = fmt.Sprintf("(%s IS NOT NULL)", column.SortExpresssion)
 		case prevValue != nil && column.NullOption == Last:
@@ -67,7 +60,7 @@ func generatePaginationForColumn(
 		}
 		return condition
 	} else {
-		condition := generatePaginationForColumn(columns[1:], values[1:])
+		condition := NextPage(columns[1:], values[1:])
 		var newCondition Condition
 		switch {
 		case prevValue == nil && column.NullOption == Last:

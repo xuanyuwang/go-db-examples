@@ -79,15 +79,11 @@ var (
 	NullASmallerB = Example{B: SmallerNullTime}
 	NullANullB    = Example{}
 
-	// in sorted order of "A ASC NULLS LAST, B DESC, NULLS FIRST"
 	AllRecords = []*Example{
 		&SmallerANullB, &SmallerABiggerB, &SmallerASmallerB,
 		&BiggerANullB, &BiggerABiggerB, &BiggerASmallerB,
 		&NullANullB, &NullABiggerB, &NullASmallerB,
 	}
-
-	columnA = OrderByColumn{SortExpresssion: "A", Direction: Asc, NullOption: Last}
-	columnB = OrderByColumn{SortExpresssion: "B", Direction: Desc, NullOption: First}
 )
 
 type PaginationTest struct {
@@ -156,71 +152,163 @@ func (t *PaginationTest) TearDownSubTest() {
 }
 
 // common order by clause shared by all tests
-func orderBy(db *gorm.DB) *gorm.DB {
-	return db.Order("A ASC NULLS LAST, B DESC NULLS FIRST")
-}
-
-func (t *PaginationTest) TestAllRecords() {
-	var records []*Example
-	err := t.db.Model(&Example{}).Scopes(orderBy).Find(&records).Error
-	t.Require().NoError(err)
-	t.Require().Len(records, len(AllRecords))
-	for i, r := range records {
-		fmt.Printf("%v: %v\n", i, r.String())
+func orderBy(columns ...OrderByColumn) func(*gorm.DB) *gorm.DB {
+	order := ""
+	for i, c := range columns {
+		if i == 0 {
+			order = fmt.Sprintf("%s %s NULLS %s", c.SortExpresssion, c.Direction, c.NullOption)
+		} else {
+			order = fmt.Sprintf("%s, %s %s NULLS %s", order, c.SortExpresssion, c.Direction, c.NullOption)
+		}
+	}
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Order(order)
 	}
 }
 
 // Test the case where the last record of the last page are all NULLs
 func (t *PaginationTest) TestNextPage() {
-	t.Run("When A is null and B is null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(NullANullB.A),
-			convertValueToNil(NullANullB.B),
+	t.Run("ORDER BY A ASC NULLS LAST, B DESC NULLS FIRST", func() {
+		columnA := OrderByColumn{SortExpresssion: "A", Direction: Asc, NullOption: Last}
+		columnB := OrderByColumn{SortExpresssion: "B", Direction: Desc, NullOption: First}
+		orderByColumns := []OrderByColumn{columnA, columnB}
+		// in sorted order of "A ASC NULLS LAST, B DESC, NULLS FIRST"
+		AllSortedRecords := []*Example{
+			&SmallerANullB, &SmallerABiggerB, &SmallerASmallerB,
+			&BiggerANullB, &BiggerABiggerB, &BiggerASmallerB,
+			&NullANullB, &NullABiggerB, &NullASmallerB,
+		}
+		t.Run("All records", func() {
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Find(&records).Error
+			t.Require().NoError(err)
+			t.Require().Len(records, len(AllSortedRecords))
+			for i, r := range records {
+				fmt.Printf("%v: %v\n", i, r.String())
+			}
 		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
 
-		t.Require().NoError(err)
-		t.Assert().Len(records, 2)
-		t.Assert().ElementsMatch(records, AllRecords[7:])
+		t.Run("When A is null and B is null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(NullANullB.A),
+				convertValueToNil(NullANullB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
+
+			t.Require().NoError(err)
+			t.Assert().Len(records, 2)
+			t.Assert().ElementsMatch(records, AllSortedRecords[7:])
+		})
+
+		t.Run("When A is null and B is not null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(NullABiggerB.A),
+				convertValueToNil(NullABiggerB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
+
+			t.Require().NoError(err)
+			t.Assert().Len(records, 1)
+			t.Assert().ElementsMatch(records, AllSortedRecords[8:])
+		})
+
+		t.Run("When A is not null and B is null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(SmallerANullB.A),
+				convertValueToNil(SmallerANullB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
+
+			t.Require().NoError(err)
+			t.Assert().Len(records, 8)
+			t.Assert().ElementsMatch(records, AllSortedRecords[1:])
+		})
+
+		t.Run("When A is not null and B is not null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(SmallerABiggerB.A),
+				convertValueToNil(SmallerABiggerB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
+
+			t.Require().NoError(err)
+			t.Assert().Len(records, 7)
+			t.Assert().ElementsMatch(records, AllSortedRecords[2:])
+		})
 	})
 
-	t.Run("When A is null and B is not null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(NullABiggerB.A),
-			convertValueToNil(NullABiggerB.B),
+	t.Run("ORDER BY A DESC NULLS FIRST, B ASC NULLS LAST", func() {
+		columnA := OrderByColumn{SortExpresssion: "A", Direction: Desc, NullOption: First}
+		columnB := OrderByColumn{SortExpresssion: "B", Direction: Asc, NullOption: Last}
+		orderByColumns := []OrderByColumn{columnA, columnB}
+		// in sorted order of "A ASC NULLS LAST, B DESC, NULLS FIRST"
+		AllSortedRecords := []*Example{
+			&NullASmallerB, &NullABiggerB, &NullANullB,
+			&BiggerASmallerB, &BiggerABiggerB, &BiggerANullB,
+			&SmallerASmallerB, &SmallerABiggerB, &SmallerANullB,
+		}
+		t.Run("All records", func() {
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Find(&records).Error
+			t.Require().NoError(err)
+			t.Require().Len(records, len(AllSortedRecords))
+			t.Require().ElementsMatch(records, AllSortedRecords)
 		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
 
-		t.Require().NoError(err)
-		t.Assert().Len(records, 1)
-		t.Assert().ElementsMatch(records, AllRecords[8:])
-	})
+		t.Run("When A is null and B is null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(NullANullB.A),
+				convertValueToNil(NullANullB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
 
-	t.Run("When A is not null and B is null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(SmallerANullB.A),
-			convertValueToNil(SmallerANullB.B),
+			t.Require().NoError(err)
+			t.Assert().Len(records, len(AllSortedRecords[3:]))
+			t.Assert().ElementsMatch(records, AllSortedRecords[3:])
 		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
 
-		t.Require().NoError(err)
-		t.Assert().Len(records, 8)
-		t.Assert().ElementsMatch(records, AllRecords[1:])
-	})
+		t.Run("When A is null and B is not null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(NullASmallerB.A),
+				convertValueToNil(NullASmallerB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
 
-	t.Run("When A is not null and B is not null in last record", func() {
-		condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
-			convertValueToNil(SmallerABiggerB.A),
-			convertValueToNil(SmallerABiggerB.B),
+			t.Require().NoError(err)
+			t.Assert().Len(records, len(AllSortedRecords[1:]))
+			t.Assert().ElementsMatch(records, AllSortedRecords[1:])
 		})
-		var records []*Example
-		err := t.db.Model(&Example{}).Scopes(orderBy).Where(condition.SQL, condition.Values...).Find(&records).Error
 
-		t.Require().NoError(err)
-		t.Assert().Len(records, 7)
-		t.Assert().ElementsMatch(records, AllRecords[2:])
+		t.Run("When A is not null and B is null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(BiggerANullB.A),
+				convertValueToNil(BiggerANullB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
+
+			t.Require().NoError(err)
+			t.Assert().Len(records, len(AllSortedRecords[6:]))
+			t.Assert().ElementsMatch(records, AllSortedRecords[6:])
+		})
+
+		t.Run("When A is not null and B is not null in last record", func() {
+			condition := NextPage([]OrderByColumn{columnA, columnB}, []interface{}{
+				convertValueToNil(BiggerASmallerB.A),
+				convertValueToNil(BiggerASmallerB.B),
+			})
+			var records []*Example
+			err := t.db.Model(&Example{}).Scopes(orderBy(orderByColumns...)).Where(condition.SQL, condition.Values...).Find(&records).Error
+
+			t.Require().NoError(err)
+			t.Assert().Len(records, len(AllSortedRecords[4:]))
+			t.Assert().ElementsMatch(records, AllSortedRecords[4:])
+		})
 	})
 }
